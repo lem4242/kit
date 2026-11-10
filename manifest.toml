@@ -12,6 +12,7 @@ setup_no_background = "--no-job"
 
 [tools.coro]
 repo = "lem4242/coro"
-tag = "v0.1.1"
+tag = "v0.1.2"
+plugin = "coro"
 # Repos that coro's own pins fetch: the access check reads them too.
 reads = "lem4242/lazo"
