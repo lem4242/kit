@@ -147,7 +147,7 @@ def link(name, which, base, m=None, quiet=False):
     if not (ROOT / name).is_dir():
         fail(f"{name} has no checkout yet; run install.sh")
     here = base != HOME
-    rec, refused = record(), []
+    rec, refused, done = record(), [], []
     for client in which:
         other = conflicting(name, client, base, m, rec)
         if other:
@@ -155,6 +155,7 @@ def link(name, which, base, m=None, quiet=False):
                 + (f"in {base}" if here else "everywhere") + f"; run `kit unlink {other}` first")
             refused.append(f"not linked for {client}")
             continue
+        done.append(client)
         skills_dir, agents_dir, hooks_file = places(client, base, here)
         items = [(skills_dir, s) for s in tool.get("skills", [])]
         items += [(agents_dir, a) for a in tool.get("agents", []) if agents_dir]
@@ -191,8 +192,8 @@ def link(name, which, base, m=None, quiet=False):
     save(rec)
     for line in refused:
         say(f"{name}: {line}")
-    if not quiet:
-        say(f"{name} linked for {', '.join(which)}" + (f" in {base}" if here else ""))
+    if not quiet and done:
+        say(f"{name} linked for {', '.join(done)}" + (f" in {base}" if here else ""))
     return not refused
 
 
