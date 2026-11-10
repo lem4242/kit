@@ -1,0 +1,11 @@
+# What install.sh installs, each at a release tag.
+
+[kit]
+marketplace = "kit"
+marketplace_repo = "lem4242/kit"
+
+[tools.alta]
+repo = "lem4242/alta"
+tag = "v0.1.35"
+setup = "alta init"
+setup_no_background = "--no-job"

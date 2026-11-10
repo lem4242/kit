@@ -1,0 +1,12 @@
+{
+  "name": "kit",
+  "description": "A toolkit to work with models.",
+  "owner": { "name": "lem4242" },
+  "plugins": [
+    {
+      "name": "coro",
+      "description": "Part of kit.",
+      "source": { "source": "github", "repo": "lem4242/coro", "ref": "v0.1.0" }
+    }
+  ]
+}
