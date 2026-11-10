@@ -1,0 +1,305 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# ///
+"""kit: the toolkit's pinned copies, and what each tool links into Claude Code and Codex.
+
+    kit status                       each tool: pinned version, verified, what is linked where
+    kit link TOOL [--claude|--codex] [--here]
+                                     link what TOOL gives an agent: skills, agents, hooks
+    kit unlink TOOL [--claude|--codex] [--here]
+                                     remove kit's links for TOOL; the program stays installed
+    kit update                       fetch the newest install.sh and manifest and run them
+    kit fetch MANIFEST               (install.sh) place each tool's pinned checkout, re-point links
+
+Links point at ~/.local/share/kit/<tool>, a link to <tool>@<tag>, so an update moves every link at
+once. kit only ever touches links and hook entries it made (kept in links.json); anything else in
+the way is left alone and reported. --here links into this project's .claude/ (and .agents/ for
+Codex skills) instead of your home."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+import urllib.request
+from pathlib import Path
+
+HOME = Path.home()
+ROOT = Path(os.environ.get("KIT_HOME") or HOME / ".local/share/kit")
+RECORD = ROOT / "links.json"
+MANIFEST = ROOT / "manifest.toml"
+PUBLIC = "https://raw.githubusercontent.com/{repo}/main/{name}"
+CODEX_HOME = Path(os.environ.get("CODEX_HOME") or HOME / ".codex")
+
+
+def fail(message):
+    sys.exit(f"kit: {message}")
+
+
+def say(message):
+    print(f"kit: {message}")
+
+
+def manifest(path=MANIFEST):
+    if not path.is_file():
+        fail(f"no manifest at {path}; run install.sh first")
+    return tomllib.loads(path.read_text())
+
+
+def record():
+    return json.loads(RECORD.read_text()) if RECORD.is_file() else {"links": [], "hooks": []}
+
+
+def save(rec):
+    ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = RECORD.with_suffix(".tmp")
+    tmp.write_text(json.dumps(rec, indent=1) + "\n")
+    tmp.replace(RECORD)
+
+
+def git(*args, cwd=None):
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+
+# --- pinned checkouts -------------------------------------------------------------------------
+
+def fetch(path):
+    """Place each tool's checkout at its tag, check it is the manifest's commit, switch the tool's
+    current link to it; keep the previous version for a rollback, remove older ones."""
+    m = manifest(Path(path))
+    ROOT.mkdir(parents=True, exist_ok=True)
+    for name, tool in m.get("tools", {}).items():
+        repo, tag, commit = tool.get("repo"), tool.get("tag"), tool.get("commit")
+        if not (repo and tag and commit):
+            fail(f"manifest has no repo, tag and commit for {name}")
+        dest = ROOT / f"{name}@{tag}"
+        if not dest.is_dir():
+            tmp = ROOT / f".{name}@{tag}.partial"
+            shutil.rmtree(tmp, ignore_errors=True)
+            out = git("clone", "--quiet", "--depth", "1", "--branch", tag, f"https://github.com/{repo}", str(tmp))
+            if out.returncode:
+                fail(f"{name}: could not fetch {repo} at {tag}: {out.stderr.strip()}")
+            tmp.rename(dest)
+        head = git("rev-parse", "HEAD", cwd=dest).stdout.strip()
+        if head != commit:
+            shutil.rmtree(dest)
+            fail(f"{name} {tag} is commit {head[:12]}, not the manifest's {commit[:12]}; refused")
+        current = ROOT / name
+        previous = os.readlink(current) if current.is_symlink() else None
+        if previous != dest.name:
+            tmp = ROOT / f".{name}.link"
+            tmp.unlink(missing_ok=True)
+            tmp.symlink_to(dest.name)
+            tmp.replace(current)
+            say(f"{name} {tag} in place" + (f" (was {previous.split('@', 1)[1]})" if previous else ""))
+        keep = {dest.name, previous}
+        for old in ROOT.glob(f"{name}@*"):
+            if old.name not in keep:
+                shutil.rmtree(old, ignore_errors=True)
+    shutil.copyfile(path, MANIFEST) if Path(path).resolve() != MANIFEST.resolve() else None
+    relink(m)
+
+
+def relink(m):
+    """After a fetch: a skill or agent a new version added or dropped follows the tool's links."""
+    rec = record()
+    for name in {e["tool"] for e in rec["links"] + rec["hooks"]}:
+        for client, base in {(e["client"], e["base"]) for e in rec["links"] + rec["hooks"] if e["tool"] == name}:
+            unlink(name, [client], Path(base), quiet=True)
+            link(name, [client], Path(base), m, quiet=True)
+
+
+# --- where things go --------------------------------------------------------------------------
+
+def places(client, base, here):
+    """The skills dir, agents dir and hooks file for a client, at home or in a project."""
+    if client == "claude":
+        root = base / ".claude"
+        return root / "skills", root / "agents", root / ("settings.local.json" if here else "settings.json")
+    if here:
+        return base / ".agents/skills", None, None
+    return CODEX_HOME / "skills", None, CODEX_HOME / "hooks.json"
+
+
+def clients(flags):
+    chosen = [c for c in ("claude", "codex") if f"--{c}" in flags]
+    if chosen:
+        return chosen
+    found = [c for c, seen in (("claude", shutil.which("claude") or (HOME / ".claude").is_dir()),
+                               ("codex", shutil.which("codex") or CODEX_HOME.is_dir())) if seen]
+    return found or ["claude"]
+
+
+def ours(path):
+    """A link kit made points into kit's root."""
+    return path.is_symlink() and os.readlink(path).startswith(str(ROOT) + "/")
+
+
+# --- link and unlink --------------------------------------------------------------------------
+
+def link(name, which, base, m=None, quiet=False):
+    m = m or manifest()
+    tool = m.get("tools", {}).get(name)
+    if tool is None:
+        fail(f"no tool {name} in the manifest ({', '.join(m.get('tools', {}))})")
+    if not (ROOT / name).is_dir():
+        fail(f"{name} has no checkout yet; run install.sh")
+    here = base != HOME
+    rec, refused = record(), []
+    for client in which:
+        skills_dir, agents_dir, hooks_file = places(client, base, here)
+        items = [(skills_dir, s) for s in tool.get("skills", [])]
+        items += [(agents_dir, a) for a in tool.get("agents", []) if agents_dir]
+        for folder, rel in items:
+            source = ROOT / name / rel
+            if not source.exists():
+                refused.append(f"{rel} is not in {name} {tool['tag']}")
+                continue
+            dest = folder / Path(rel).name
+            if dest.is_symlink() and os.readlink(dest) == str(source):
+                pass
+            elif dest.exists() or dest.is_symlink():
+                if not ours(dest):
+                    refused.append(f"{dest} is not kit's; left alone")
+                    continue
+                dest.unlink()
+                dest.symlink_to(source)
+            else:
+                folder.mkdir(parents=True, exist_ok=True)
+                dest.symlink_to(source)
+            entry = {"tool": name, "client": client, "base": str(base), "path": str(dest)}
+            if entry not in rec["links"]:
+                rec["links"].append(entry)
+        for hook in tool.get("hooks", []):
+            if hooks_file is None:
+                refused.append(f"{client} hooks are not linked with --here")
+                continue
+            command = str(ROOT / name / hook["command"])
+            add_hook(hooks_file, hook["event"], hook.get("matcher", ""), command)
+            entry = {"tool": name, "client": client, "base": str(base), "file": str(hooks_file),
+                     "event": hook["event"], "command": command}
+            if entry not in rec["hooks"]:
+                rec["hooks"].append(entry)
+    save(rec)
+    for line in refused:
+        say(f"{name}: {line}")
+    if not quiet:
+        say(f"{name} linked for {', '.join(which)}" + (f" in {base}" if here else ""))
+    return not refused
+
+
+def unlink(name, which, base, quiet=False):
+    rec = record()
+    keep_links, keep_hooks, removed = [], [], 0
+    for e in rec["links"]:
+        if e["tool"] == name and e["client"] in which and e["base"] == str(base):
+            p = Path(e["path"])
+            if ours(p):
+                p.unlink()
+                removed += 1
+            elif p.exists():
+                say(f"{p} is no longer kit's; left alone")
+        else:
+            keep_links.append(e)
+    for e in rec["hooks"]:
+        if e["tool"] == name and e["client"] in which and e["base"] == str(base):
+            drop_hook(Path(e["file"]), e["event"], e["command"])
+            removed += 1
+        else:
+            keep_hooks.append(e)
+    rec["links"], rec["hooks"] = keep_links, keep_hooks
+    save(rec)
+    if not quiet:
+        say(f"{name}: {removed} link(s) removed" if removed else f"{name}: nothing of kit's was linked there")
+
+
+# --- hooks: entries kit owns are the ones whose command runs from kit's root ------------------
+
+def read_json(path):
+    try:
+        return json.loads(path.read_text()) if path.is_file() else {}
+    except json.JSONDecodeError:
+        fail(f"{path} is not valid JSON; fix it by hand, kit will not overwrite it")
+
+
+def write_json(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".kit-tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    tmp.replace(path)
+
+
+def add_hook(path, event, matcher, command):
+    data = read_json(path)
+    groups = data.setdefault("hooks", {}).setdefault(event, [])
+    if any(h.get("command") == command for g in groups for h in g.get("hooks", [])):
+        return
+    groups.append({"matcher": matcher, "hooks": [{"type": "command", "command": command}]})
+    write_json(path, data)
+
+
+def drop_hook(path, event, command):
+    data = read_json(path)
+    groups = data.get("hooks", {}).get(event, [])
+    for g in groups:
+        g["hooks"] = [h for h in g.get("hooks", []) if h.get("command") != command]
+    data.get("hooks", {})[event] = [g for g in groups if g.get("hooks")]
+    if not data.get("hooks", {}).get(event):
+        data.get("hooks", {}).pop(event, None)
+    write_json(path, data)
+
+
+# --- status and update ------------------------------------------------------------------------
+
+def status():
+    m, rec = manifest(), record()
+    for name, tool in m.get("tools", {}).items():
+        current = ROOT / name
+        tag = os.readlink(current).split("@", 1)[1] if current.is_symlink() else "not fetched"
+        head = git("rev-parse", "HEAD", cwd=current).stdout.strip() if current.is_dir() else ""
+        check = "verified" if head and head == tool.get("commit") else "NOT the manifest's commit" if head else ""
+        program = "installed" if shutil.which(name) else "program not on PATH"
+        print(f"{name} {tag} {check} ({program})".replace("  ", " "))
+        where = sorted({(e["client"], e["base"]) for e in rec["links"] + rec["hooks"] if e["tool"] == name})
+        for client, base in where:
+            print(f"  linked for {client} " + ("everywhere" if base == str(HOME) else f"in {base}"))
+        if not where:
+            print("  not linked" if any(tool.get(k) for k in ("skills", "agents", "hooks")) else "  nothing to link")
+
+
+def update():
+    m = manifest()
+    repo = m["kit"]["public_repo"]
+    with tempfile.TemporaryDirectory() as d:
+        for f in ("install.sh", "manifest.toml"):
+            with urllib.request.urlopen(PUBLIC.format(repo=repo, name=f)) as r:
+                Path(d, f).write_bytes(r.read())
+        sys.exit(subprocess.run(["sh", str(Path(d, "install.sh")), *sys.argv[2:]]).returncode)
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help", "help"):
+        print(__doc__)
+        return
+    cmd, rest = argv[1], argv[2:]
+    flags = [a for a in rest if a.startswith("--")]
+    args = [a for a in rest if not a.startswith("--")]
+    base = Path.cwd() if "--here" in flags else HOME
+    if cmd == "status":
+        status()
+    elif cmd == "link" and len(args) == 1:
+        sys.exit(0 if link(args[0], clients(flags), base) else 1)
+    elif cmd == "unlink" and len(args) == 1:
+        unlink(args[0], clients(flags) if any(f in flags for f in ("--claude", "--codex")) else ["claude", "codex"], base)
+    elif cmd == "fetch" and len(args) == 1:
+        fetch(args[0])
+    elif cmd == "update":
+        update()
+    else:
+        fail(f"unknown command: {' '.join(argv[1:])} (kit help)")
+
+
+if __name__ == "__main__":
+    main(sys.argv)
