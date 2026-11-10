@@ -1,6 +1,8 @@
 # What install.sh installs, each at a release tag and the commit that tag must be. `skills`,
 # `agents` and `hooks` are what `kit link` places for Claude Code and Codex; `link = true` links
-# the tool on a first install.
+# the tool on a first install. `program = false`: the tool has no program to `uv tool install`, only
+# what it links. `conflicts`: tools that are alternatives to this one; `kit link` refuses one while
+# another is linked in the same place (client and home or project), whichever side lists it.
 
 [kit]
 public_repo = "lem4242/kit"
@@ -20,3 +22,13 @@ commit = "44f096cc59dd4c6146f5d246ec56f6e325ce2656"
 reads = "lem4242/lazo"
 skills = ["skills/coro"]
 link = true
+conflicts = ["dela"]
+
+[tools.dela]
+repo = "lem4242/dela"
+tag = "v0.1.0"
+commit = "bf064aa35d022e796a32fa972607f1023200b9b3"
+program = false
+skills = ["skills/delegate"]
+agents = ["agents/think.md", "agents/think-hard.md", "agents/investigate.md"]
+conflicts = ["coro"]

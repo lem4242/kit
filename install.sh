@@ -1,7 +1,8 @@
 #!/bin/sh
 # kit: install the toolkit on this machine.
 #
-#   sh install.sh [--no-background] [--no-link]
+#   curl -fsSL https://raw.githubusercontent.com/lem4242/kit/main/install.sh | sh
+#   sh install.sh [--no-background] [--no-link]     (from a clone; piped: | sh -s -- --no-link)
 #
 # Needs git and curl. Installs uv if missing, then each tool in manifest.toml at its tag with
 # `uv tool install`, sets up local state on first run, installs the `kit` command, and on a first
@@ -20,7 +21,7 @@ for arg in "$@"; do
     case "$arg" in
         --no-background) no_background=1 ;;
         --no-link|--no-plugin) no_link=1 ;;
-        -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+        -h|--help) if [ -f "$0" ]; then sed -n '2,14p' "$0"; else echo "see https://github.com/lem4242/kit"; fi; exit 0 ;;
         *) echo "install.sh: unknown argument $arg (see --help)" >&2; exit 2 ;;
     esac
 done
@@ -28,7 +29,19 @@ done
 say() { printf 'kit: %s\n' "$*"; }
 fail() { printf 'kit: %s\n' "$*" >&2; exit 1; }
 
-here=$(cd "$(dirname "$0")" && pwd)
+# Run from a clone, the manifest and kit sit beside this script. Piped into sh there is no
+# beside: fetch both from the public repo (KIT_RAW: another place to fetch them from) into a
+# folder removed on exit.
+here=; [ -f "$0" ] && here=$(cd "$(dirname "$0")" && pwd)
+if [ -z "$here" ] || [ ! -f "$here/manifest.toml" ]; then
+    command -v curl >/dev/null || fail "curl is needed; install it with your package manager and run this again"
+    raw=${KIT_RAW:-https://raw.githubusercontent.com/lem4242/kit/main}
+    here=$(mktemp -d); trap 'rm -rf "$here"' EXIT
+    for f in manifest.toml kit; do
+        curl -fsSL "$raw/$f" -o "$here/$f" || fail "could not fetch $f from $raw"
+    done
+    say "fetched the manifest from $raw"
+fi
 manifest="$here/manifest.toml"
 [ -f "$manifest" ] || fail "manifest.toml is not beside install.sh; get both from the same place"
 tools=$(sed -n 's/^\[tools\.\([a-z0-9_-]*\)\]$/\1/p' "$manifest")
@@ -72,9 +85,11 @@ done
 say "signed in to GitHub as $login; the tools are readable"
 
 # 3. The tools, at their tags.
+# A tool with `program = false` has only what it links; `kit fetch` places it in step 5.
 for tool in $tools; do
     repo=$(field "$tool" repo); tag=$(field "$tool" tag)
     [ -n "$repo" ] && [ -n "$tag" ] || fail "manifest.toml has no repo and tag for $tool"
+    sed -n "/^\[tools.$tool\]/,/^\[/p" "$manifest" | grep -q '^program *= *false' && continue
     say "$tool $tag"
     uv tool install --quiet "git+https://github.com/$repo@$tag" || fail "$tool did not install from $repo at $tag"
 done

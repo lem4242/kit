@@ -149,6 +149,12 @@ def link(name, which, base, m=None, quiet=False):
     here = base != HOME
     rec, refused = record(), []
     for client in which:
+        other = conflicting(name, client, base, m, rec)
+        if other:
+            say(f"{name} and {other} are alternatives, and {other} is linked for {client} "
+                + (f"in {base}" if here else "everywhere") + f"; run `kit unlink {other}` first")
+            refused.append(f"not linked for {client}")
+            continue
         skills_dir, agents_dir, hooks_file = places(client, base, here)
         items = [(skills_dir, s) for s in tool.get("skills", [])]
         items += [(agents_dir, a) for a in tool.get("agents", []) if agents_dir]
@@ -188,6 +194,17 @@ def link(name, which, base, m=None, quiet=False):
     if not quiet:
         say(f"{name} linked for {', '.join(which)}" + (f" in {base}" if here else ""))
     return not refused
+
+
+def conflicting(name, client, base, m, rec):
+    """A linked tool in the same place that is an alternative to `name`, listed on either side."""
+    tools = m.get("tools", {})
+    linked = {e["tool"] for e in rec["links"] + rec["hooks"]
+              if e["client"] == client and e["base"] == str(base) and e["tool"] != name}
+    for other in sorted(linked):
+        if other in tools.get(name, {}).get("conflicts", []) or name in tools.get(other, {}).get("conflicts", []):
+            return other
+    return None
 
 
 def unlink(name, which, base, quiet=False):
@@ -260,7 +277,8 @@ def status():
         tag = os.readlink(current).split("@", 1)[1] if current.is_symlink() else "not fetched"
         head = git("rev-parse", "HEAD", cwd=current).stdout.strip() if current.is_dir() else ""
         check = "verified" if head and head == tool.get("commit") else "NOT the manifest's commit" if head else ""
-        program = "installed" if shutil.which(name) else "program not on PATH"
+        program = ("no program" if tool.get("program") is False
+                   else "installed" if shutil.which(name) else "program not on PATH")
         print(f"{name} {tag} {check} ({program})".replace("  ", " "))
         where = sorted({(e["client"], e["base"]) for e in rec["links"] + rec["hooks"] if e["tool"] == name})
         for client, base in where:

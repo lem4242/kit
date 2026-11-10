@@ -9,8 +9,10 @@ You need `git`, `curl`, and a GitHub login that has been invited. Sign in with t
 (`gh auth login`), then:
 
 ```sh
-git clone https://github.com/lem4242/kit kit && sh kit/install.sh
+curl -fsSL https://raw.githubusercontent.com/lem4242/kit/main/install.sh | sh
 ```
+
+Or from a clone: `git clone https://github.com/lem4242/kit kit && sh kit/install.sh`.
 
 Run it again any time: finished steps are left alone. It asks no questions. Without the GitHub
 CLI, set `GH_TOKEN` to a token that can read the tools.
