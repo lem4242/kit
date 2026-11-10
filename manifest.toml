@@ -9,3 +9,9 @@ repo = "lem4242/alta"
 tag = "v0.1.35"
 setup = "alta init"
 setup_no_background = "--no-job"
+
+[tools.coro]
+repo = "lem4242/coro"
+tag = "v0.1.1"
+# Repos that coro's own pins fetch: the access check reads them too.
+reads = "lem4242/lazo"

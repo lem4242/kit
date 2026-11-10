@@ -61,8 +61,7 @@ export GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_1=ssh
 export GIT_CONFIG_KEY_2=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_2=git@github.com:
 login=$(curl -sf -H "Authorization: token $GH_TOKEN" https://api.github.com/user | sed -n 's/^ *"login": *"\(.*\)",*$/\1/p' | head -1)
 [ -n "$login" ] || fail "GitHub does not accept this token; sign in again ('gh auth login') or check GH_TOKEN"
-for tool in $tools; do
-    repo=$(field "$tool" repo)
+for repo in $(for tool in $tools; do field "$tool" repo; field "$tool" reads; done); do
     git ls-remote -q "https://github.com/$repo" HEAD >/dev/null 2>&1 \
         || fail "signed in to GitHub as $login, but github.com/$repo is not readable: ask the person who invited you to add $login to $repo, accept the invitation (github.com/notifications), then run this again"
 done
