@@ -16,8 +16,8 @@ setup_no_background = "--no-job"
 
 [tools.coro]
 repo = "lem4242/coro"
-tag = "v0.1.4"
-commit = "44f096cc59dd4c6146f5d246ec56f6e325ce2656"
+tag = "v0.1.6"
+commit = "8cab4e0d5e1865019961846adbd0fcce57db29d1"
 # Repos that coro's own pins fetch: the access check reads them too.
 reads = "lem4242/lazo"
 skills = ["skills/coro"]
