@@ -9,15 +9,15 @@ public_repo = "lem4242/kit"
 
 [tools.alta]
 repo = "lem4242/alta"
-tag = "v0.1.35"
-commit = "ff4d330a8871b2d875048fc34a2f042abf95c6b1"
+tag = "v0.1.40"
+commit = "d465b52c828c2d3eb6608f2d5a90d4a44fb4b58d"
 setup = "alta init"
 setup_no_background = "--no-job"
 
 [tools.coro]
 repo = "lem4242/coro"
-tag = "v0.1.6"
-commit = "8cab4e0d5e1865019961846adbd0fcce57db29d1"
+tag = "v0.1.11"
+commit = "892008dd4510707c67cf13b9b6c9407222bfbd65"
 # Repos that coro's own pins fetch: the access check reads them too.
 reads = "lem4242/lazo"
 skills = ["skills/coro"]
