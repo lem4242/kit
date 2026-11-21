@@ -3,21 +3,22 @@
 # the tool on a first install. `program = false`: the tool has no program to `uv tool install`, only
 # what it links. `conflicts`: tools that are alternatives to this one; `kit link` refuses one while
 # another is linked in the same place (client and home or project), whichever side lists it.
+# `signed = false`: the tool has no signed `approved` tag to check its pin against.
 
 [kit]
 public_repo = "lem4242/kit"
 
 [tools.alta]
 repo = "lem4242/alta"
-tag = "v0.1.40"
-commit = "d465b52c828c2d3eb6608f2d5a90d4a44fb4b58d"
+tag = "v0.1.56"
+commit = "b43a5760b53a8269aced723c15d7ebe4e72aeb91"
 setup = "alta init"
 setup_no_background = "--no-job"
 
 [tools.coro]
 repo = "lem4242/coro"
-tag = "v0.1.11"
-commit = "892008dd4510707c67cf13b9b6c9407222bfbd65"
+tag = "v0.1.20"
+commit = "3bbfbe85ff98bbc4094e92d8ad0041eb5e2f0e83"
 # Repos that coro's own pins fetch: the access check reads them too.
 reads = "lem4242/lazo"
 skills = ["skills/coro"]
@@ -29,6 +30,7 @@ repo = "lem4242/dela"
 tag = "v0.1.0"
 commit = "bf064aa35d022e796a32fa972607f1023200b9b3"
 program = false
+signed = false
 skills = ["skills/delegate"]
 agents = ["agents/think.md", "agents/think-hard.md", "agents/investigate.md"]
 conflicts = ["coro"]
